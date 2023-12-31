@@ -1,0 +1,12 @@
+
+local STATES = {
+	DEFAULT = 1,
+	ROOM_PLACING = 2,
+	DOOR_PLACING = 3,
+    ERASING = 4,
+    WALL_DRAWING = 5,
+	ITEM_PLACING = 6,
+	FLOOR_DRAWING = 7,
+}
+
+return STATES
