@@ -123,12 +123,16 @@ function Erasing:Raycast(override: Vector2?)
 	end
 end
 
+function Erasing:Erase()
+	if not self._targetObject:get() then return end
+	self._onErase(self._targetObject:get())
+end
+
 function Erasing:SetupListeners()
     --MOUSE LISTENERS
     self._mouse = Mouse.new()
 	self._mouse.LeftDown:Connect(function()
-		if not self._targetObject:get() then return end
-		self._onErase(self._targetObject:get())
+		self:Erase()
 	end)
     self._maid:Add(self._mouse)
 
@@ -153,8 +157,7 @@ function Erasing:SetupListeners()
 				BackgroundColor3 = Color3.fromRGB(204, 82, 82);
 				Size = UDim2.fromScale(0.5, 0.5);
 				[Fusion.OnEvent "MouseButton1Click"] = function()
-					if not self._targetObject:get() then return end
-					self._onErase(self._targetObject:get())
+					self:Erase()				
 				end,
 				[Fusion.Children] = {
 					Center {

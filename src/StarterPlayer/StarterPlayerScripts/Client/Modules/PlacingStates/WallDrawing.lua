@@ -45,7 +45,9 @@ local StyledButton = UILib.StyledButton
 
 local ContextBillboard = require(Modules:WaitForChild('ContextBillboard'))
 
-local STATES = require(Modules:WaitForChild('States'))
+local DataStructures = ReplicatedStorage:WaitForChild("DataStructures")
+local WallGraph = require(DataStructures:WaitForChild("WallGraph"))
+type WallGraph = WallGraph.WallGraph
 
 local WallDrawing = {}
 WallDrawing.__index = WallDrawing
@@ -56,9 +58,10 @@ type Plot = {
 	Floors: () -> Folder,
 	Walls: () -> Folder,
 	Items: () -> Folder,
+	WallGraph: WallGraph,
 }
 
-function WallDrawing.new(plot: Plot, onPlacement: (start: Vector3, finish: Vector3) -> nil, height: number?, thickness: number?)
+function WallDrawing.new(plot: Plot, onPlacement: (pos1: Vector2, pos2: Vector2) -> nil, height: number?, thickness: number?)
     local self = setmetatable({}, WallDrawing)
     self._maid = Trove.new()
 
@@ -67,6 +70,9 @@ function WallDrawing.new(plot: Plot, onPlacement: (start: Vector3, finish: Vecto
 
 	self._currentGridTargetPos = Fusion.Value(Vector3.new())
 	self._startHoldingPos = Fusion.Value(nil)
+
+	self._currentRelative = Fusion.Value(Vector3.new())
+	self._startRelative = Fusion.Value(nil)
 
 	self.Height = height or 10
 	self.Thickness = thickness or 0.1
@@ -123,7 +129,6 @@ function WallDrawing.new(plot: Plot, onPlacement: (start: Vector3, finish: Vecto
 		local maxX, minX = math.max(start.X, current.X), math.min(start.X, current.X)
 		local maxZ, minZ = math.max(start.Z, current.Z), math.min(start.Z, current.Z)
 
-		print(start.Y, current.Y)
 		start = Vector3.new(minX, start.Y + self.Height/2, minZ)
 		current = Vector3.new(maxX, current.Y + self.Height/2, maxZ)
 
@@ -169,6 +174,9 @@ function WallDrawing:Raycast(override: Vector2?)
 		else
 			self._currentGridTargetPos:set(Vector3.new(x, pos.Y, z))
 		end
+
+		local relative = CFrame.new(self._currentGridTargetPos:get()):ToObjectSpace(self._plot.Baseplate.CFrame)
+		self._currentRelative:set(Vector2.new(relative.X, relative.Z))
 	end
 end
 
@@ -176,9 +184,10 @@ function WallDrawing:FinishPlacement()
 	local start = self._startHoldingPos:get()
 	local finish = self._currentGridTargetPos:get()
 	if start and finish and self._placementIsValid:get() then
-		self._onPlacement(start, finish)
+		self._onPlacement(self._startRelative:get(), self._currentRelative:get())
 	end
 	self._startHoldingPos:set(nil)
+	self._startRelative:set(nil)
 end
 
 function WallDrawing:SetupListeners()
@@ -186,6 +195,7 @@ function WallDrawing:SetupListeners()
     self._mouse = Mouse.new()
 	self._mouse.LeftDown:Connect(function()
 		self._startHoldingPos:set(self._currentGridTargetPos:get())
+		self._startRelative:set(self._currentRelative:get())
 	end)
 	self._mouse.LeftUp:Connect(function()
 		self:FinishPlacement()

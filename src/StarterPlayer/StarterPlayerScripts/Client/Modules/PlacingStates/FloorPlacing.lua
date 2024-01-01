@@ -58,7 +58,7 @@ type Plot = {
 	Items: () -> Folder,
 }
 
-function FloorPlacing.new(plot: Plot, onPlacement: (start: Vector3, finish: Vector3) -> nil)
+function FloorPlacing.new(plot: Plot, onPlacement: (pos1: Vector2, pos2: Vector2) -> nil)
     local self = setmetatable({}, FloorPlacing)
     self._maid = Trove.new()
 
@@ -67,6 +67,9 @@ function FloorPlacing.new(plot: Plot, onPlacement: (start: Vector3, finish: Vect
 
 	self._currentGridTargetPos = Fusion.Value(Vector3.new())
 	self._startHoldingPos = Fusion.Value(nil)
+
+	self._currentRelative = Fusion.Value(Vector2.new())
+	self._startRelative = Fusion.Value(nil)
 
 	self._floorSize = Fusion.Computed(function()
 		if not self._startHoldingPos:get() then return Vector3.new() end
@@ -129,8 +132,10 @@ function FloorPlacing:Raycast(override: Vector2?)
         local z = math.round(pos.Z)
 
         self._currentGridTargetPos:set(Vector3.new(x, pos.Y, z))
-        return true
-    end
+		
+		local relative = CFrame.new(self._currentGridTargetPos:get()):ToObjectSpace(self._plot.Baseplate.CFrame)
+		self._currentRelative:set(Vector2.new(relative.X, relative.Z))
+	end
 end
 
 function FloorPlacing:FinishPlacement()
@@ -141,12 +146,12 @@ function FloorPlacing:FinishPlacement()
     start = Vector3.new(minX, start.Y, minZ)
     current = Vector3.new(maxX, start.Y, maxZ)
     
-    local floorCFrame, floorSize = self._floorCFrame:get(), self._floorSize:get()
     if self._placementIsValid:get() then
-        self._onPlacement(start, current)
+        self._onPlacement(self._startRelative:get(), self._currentRelative:get())
     end
 
     self._startHoldingPos:set(nil)
+	self._startRelative:set(nil)
 end
 
 function FloorPlacing:SetupListeners()
@@ -154,6 +159,7 @@ function FloorPlacing:SetupListeners()
     self._mouse = Mouse.new()
 	self._mouse.LeftDown:Connect(function()
 		self._startHoldingPos:set(self._currentGridTargetPos:get())
+		self._startRelative:set(self._currentRelative:get())
 	end)
 	self._mouse.LeftUp:Connect(function()
 		self:FinishPlacement()

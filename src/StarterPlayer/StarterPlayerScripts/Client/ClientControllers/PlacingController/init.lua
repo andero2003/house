@@ -47,6 +47,9 @@ local PlacingController = Knit.CreateController {
 	Name = "PlacingController" 
 }
 
+local DataStructures = ReplicatedStorage:WaitForChild('DataStructures')
+local WallGraph = require(DataStructures:WaitForChild('WallGraph'))
+
 local ItemsList = require(script:WaitForChild('ItemsList'))
 
 local PlacingStates = Modules:WaitForChild('PlacingStates')
@@ -59,9 +62,11 @@ local ItemPlacing = require(PlacingStates:WaitForChild('ItemPlacing'))
 function PlacingController:KnitInit()
 	local plots = game.Workspace:WaitForChild('Plots')
 
+	local baseplate = plots:WaitForChild(Player.UserId):WaitForChild('Baseplate')
+
 	local _currentLevel = Fusion.Value(0)
 	self.Plot = {
-		Baseplate = plots:WaitForChild(Player.UserId):WaitForChild('Baseplate'),
+		Baseplate = baseplate,
 		CurrentLevel = _currentLevel,
 		Floors = function()
 			return plots:WaitForChild(Player.UserId):WaitForChild('Floors'):WaitForChild(_currentLevel:get())
@@ -72,6 +77,7 @@ function PlacingController:KnitInit()
 		Items = function()
 			return plots:WaitForChild(Player.UserId):WaitForChild('Items'):WaitForChild(_currentLevel:get())
 		end,
+		WallGraph = WallGraph.new(baseplate)
 	}
 
 	local _state = Fusion.Value(nil)
@@ -237,8 +243,8 @@ function PlacingController:KnitStart()
 				PaddingLeft = UDim.new(0.025, 0),
 			};
 			self:ButtonBuilder('FLOOR', function()
-				return FloorPlacing.new(self.Plot, function(start, finish)
-					PlacingService:DrawFloor(start, finish, self.Plot.CurrentLevel:get())
+				return FloorPlacing.new(self.Plot, function(pos1: Vector2, pos2: Vector2)
+					PlacingService:DrawFloor(pos1, pos2, self.Plot.CurrentLevel:get())
 				end)
 			end),
 			self:ButtonBuilder('DOOR', function()
@@ -252,8 +258,8 @@ function PlacingController:KnitStart()
 				end)
 			end),
 			self:ButtonBuilder('WALL', function()
-				return WallDrawing.new(self.Plot, function(start, finish)
-					PlacingService:DrawWall(start, finish, self.Plot.CurrentLevel:get())
+				return WallDrawing.new(self.Plot, function(pos1: Vector2, pos2: Vector2)
+					PlacingService:DrawWall(pos1, pos2, self.Plot.CurrentLevel:get())
 				end)
 			end),
 			self:ButtonBuilder('ITEM', function()

@@ -70,6 +70,8 @@ function WallNegativePlacing.new(plot: Plot, onPlacement: (wall: BasePart, finis
 	self._currentGridTargetCFrame = Fusion.Value(CFrame.new())
 	self._targetWall = Fusion.Value(nil)
 
+	self._currentRelative = Fusion.Value(Vector2.new())
+
 	self._clampFunction = clampFunction
 
 	self._itemId = item:GetAttribute('Id')
@@ -118,7 +120,6 @@ function WallNegativePlacing:Raycast(override: Vector2?)
 			localPos = self._clampFunction(wall, self._boundingBox, localPos)
 		end
 
-
 		local isXAxis = math.abs(localPos.X) > math.abs(localPos.Z)
 
 		self._targetWall:set(wall)
@@ -129,6 +130,9 @@ function WallNegativePlacing:Raycast(override: Vector2?)
 				(isXAxis and localPos.Z or (math.round(localPos.Z) + xOffset))
 			)
 		)
+
+		local relative = CFrame.new(self._currentGridTargetCFrame:get().Position):ToObjectSpace(self._plot.Baseplate.CFrame)
+		self._currentRelative:set(Vector2.new(relative.X, relative.Z))
 	else
 		self._targetWall:set(nil)
 	end	

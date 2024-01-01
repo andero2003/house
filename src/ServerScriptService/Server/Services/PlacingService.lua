@@ -25,6 +25,11 @@ local Server = ServerScriptService:WaitForChild('Server')
 local Modules = Server:WaitForChild('Modules')
 local Components = Server:WaitForChild('Components')
 
+local DataStructures = ReplicatedStorage:WaitForChild("DataStructures")
+local WallGraph = require(DataStructures:WaitForChild("WallGraph"))
+local GridNode = require(DataStructures:WaitForChild("GridNode"))
+type GridNode = GridNode.GridNode
+
 local PlacingService = Knit.CreateService {
 	Name = "PlacingService",
 	Client = {	
@@ -33,7 +38,8 @@ local PlacingService = Knit.CreateService {
 }
 -- INITIALISATION & CONNECTIONS --
 function PlacingService:KnitInit()
-
+	self.WallGraphs = {}
+	self.Maids = {}
 end
 
 function PlacingService:KnitStart()
@@ -45,11 +51,64 @@ function PlacingService:KnitStart()
 		local freeId = self:GetFreePositionId()
 		plot:SetAttribute('PosId', freeId)
 		plot:PivotTo(CFrame.new(freeId*100, 0.1, -60))
+
+		local wallGraph = WallGraph.new(plot:WaitForChild('Baseplate'))
+		self.WallGraphs[player] = wallGraph
+
+		local maid = Trove.new()
+		self.Maids[player] = maid
+		maid:Add(wallGraph.EdgeAdded:Connect(function(node1: GridNode, node2: GridNode, uuid: string)
+			local plot = game.Workspace:WaitForChild('Plots'):WaitForChild(player.UserId)
+			local level = 0
+			local wallsFolder = plot:WaitForChild('Walls'):WaitForChild(level)
+			if wallsFolder:FindFirstChild(uuid) then return end
+			local isWallNegative = node1.wallNegativeId and node2.wallNegativeId
+			if isWallNegative and node1.wallNegativeId == node2.wallNegativeId then return end
+
+			local start = (plot:WaitForChild('Baseplate').CFrame * CFrame.new(Vector3.new(node1._x, 0, node1._z)):Inverse()).Position
+			local current = (plot:WaitForChild('Baseplate').CFrame * CFrame.new(Vector3.new(node2._x, 0, node2._z)):Inverse()).Position
+
+			-- Determine whether the wall is being drawn along the X or Z axis
+			local isXAxis = math.abs(start.X - current.X) > math.abs(start.Z - current.Z)
+		
+			local wallHeight = 10
+			local wallThickness = 0.1
+			
+			local wallSize = Vector3.new((start-current).Magnitude, wallHeight, wallThickness)
+			local wallCFrame = CFrame.new(start:Lerp(current, 0.5)) * CFrame.new(0, wallHeight/2, 0) * CFrame.Angles(0, isXAxis and 0 or math.pi/2, 0)
+		
+			local wall = Fusion.New "Part" {
+				Parent = wallsFolder,
+				Name = uuid,
+				Anchored = true,
+				Material = Enum.Material.SmoothPlastic,
+				Size = wallSize,
+				CFrame = wallCFrame,
+				Color = Color3.fromRGB(168, 168, 168),
+			}		
+		end))
+		maid:Add(wallGraph.EdgeRemoved:Connect(function(uuid: string)
+			local plot = game.Workspace:WaitForChild('Plots'):WaitForChild(player.UserId)
+			local level = 0
+			local wallsFolder = plot:WaitForChild('Walls'):WaitForChild(level)
+			local wall = wallsFolder:FindFirstChild(uuid)
+			if wall then
+				wall:Destroy()
+			end
+		end))
 	end)
 
 	Players.PlayerRemoving:Connect(function(player: Player)
 		local plot: Model = game.Workspace:WaitForChild('Plots'):WaitForChild(player.UserId)
 		plot:Destroy()
+
+		if self.WallGraphs[player] then
+			self.WallGraphs[player] = nil
+		end
+		if self.Maids[player] then
+			self.Maids[player]:Destroy()
+			self.Maids[player] = nil
+		end
 	end)
 end
 
@@ -81,61 +140,50 @@ function PlacingService:PlaceWallNegative(player: Player, wall: BasePart, absolu
 	local wallsFolder = plot:WaitForChild('Walls'):WaitForChild(level)
 	local itemsFolder = plot:WaitForChild('Items'):WaitForChild(level)
 
-	local localDoorPos = wall.CFrame:ToObjectSpace(absoluteCF).Position
 	local width, height = item.PrimaryPart.Size.X, item.PrimaryPart.Size.Y
 
-	local leftSize = Vector3.new(wallLength/2 - localDoorPos.X - width/2, wall.Size.Y, wall.Size.Z)
-	local rightSize = Vector3.new(wallLength - width - leftSize.X, wall.Size.Y, wall.Size.Z)
-	local topSize = Vector3.new(width, (wall.Size.Y - height)/2 - localDoorPos.Y , wall.Size.Z)
-	local bottomSize = Vector3.new(width, wall.Size.Y - height - topSize.Y, wall.Size.Z)
+	local start, finish = (absoluteCF * CFrame.new(-width/2, 0, 0)):ToObjectSpace(plot.Baseplate.CFrame):Inverse(), (absoluteCF * CFrame.new(width / 2, 0, 0)):ToObjectSpace(plot.Baseplate.CFrame):Inverse()
+	local pos1, pos2 = -Vector2.new(math.round(start.X), math.round(start.Z)), -Vector2.new(math.round(finish.X), math.round(finish.Z))
 
-	local leftCF = wall.CFrame * CFrame.new(localDoorPos.X + width/2 + leftSize.X/2, 0, 0)
-	local rightCF = wall.CFrame * CFrame.new(localDoorPos.X - width/2 - rightSize.X/2, 0, 0)
-	local topCF = wall.CFrame * CFrame.new(localDoorPos.X, localDoorPos.Y + height/2 + topSize.Y/2, 0)
-	local bottomCF = wall.CFrame * CFrame.new(localDoorPos.X, localDoorPos.Y - height/2 - bottomSize.Y/2, 0)
-
-	-- Create the left, right, and top parts of the wall
-	if leftSize.X > 0.2 and leftSize.Y > 0.2 then
-		local leftWall = Instance.new("Part")
-		leftWall.Size = leftSize
-		leftWall.CFrame = leftCF
-		leftWall.Parent = wallsFolder
-		leftWall.Color = Color3.fromRGB(168, 168, 168)
-		leftWall.Anchored = true
-	end
-
-	if rightSize.X > 0.2 and rightSize.Y > 0.2 then
-		local rightWall = Instance.new("Part")
-		rightWall.Size = rightSize
-		rightWall.CFrame = rightCF
-		rightWall.Parent = wallsFolder
-		rightWall.Color = Color3.fromRGB(168, 168, 168)
-		rightWall.Anchored = true
-	end
-
-	if topSize.Y > 0.2 and topSize.X > 0.2 then
-		local topWall = Instance.new("Part")
-		topWall.Size = topSize
-		topWall.CFrame = topCF
-		topWall.Parent = wallsFolder
-		topWall.Color = Color3.fromRGB(168, 168, 168)
-		topWall.Anchored = true
-	end
-
-	if bottomSize.Y > 0.2 and bottomSize.X > 0.2 then
-		local bottomWall = Instance.new("Part")
-		bottomWall.Size = bottomSize
-		bottomWall.CFrame = bottomCF
-		bottomWall.Parent = wallsFolder
-		bottomWall.Color = Color3.fromRGB(168, 168, 168)
-		bottomWall.Anchored = true
-	end
+	--self:Erase(player, wall)
+	local wallGraph = self.WallGraphs[player]
+	if not wallGraph then return end
+	--local wallNode1, wallNode2 = self:Erase(player, wall)
+	local wallNegativeId = HttpService:GenerateGUID(false)
+	local wallNegativeNode1, wallNegativeNode2 = wallGraph:InsertNode(pos1, wallNegativeId), wallGraph:InsertNode(pos2, wallNegativeId)
+	wallGraph:_recalculateRooms()
 
 	item = item:Clone()
 	item.Parent = itemsFolder
 	item:PivotTo(absoluteCF)
 
-	wall:Destroy()
+	item:SetAttribute('NodePos1', pos1)
+	item:SetAttribute('NodePos2', pos2)
+
+	local localDoorPos = wall.CFrame:ToObjectSpace(absoluteCF).Position
+
+	local topSize = Vector3.new(width, (wall.Size.Y - height)/2 - localDoorPos.Y , wall.Size.Z)
+	local topCF = wall.CFrame * CFrame.new(localDoorPos.X, localDoorPos.Y + height/2 + topSize.Y/2, 0)
+
+	if topSize.Y > 0.2 and topSize.X > 0.2 then
+		local topWall = Instance.new("Part")
+		topWall.Size = topSize
+		topWall.CFrame = topCF
+		topWall.Parent = item
+		topWall.Color = Color3.fromRGB(168, 168, 168)
+		topWall.Anchored = true
+	end
+	local bottomSize = Vector3.new(width, wall.Size.Y - height - topSize.Y, wall.Size.Z)
+	local bottomCF = wall.CFrame * CFrame.new(localDoorPos.X, localDoorPos.Y - height/2 - bottomSize.Y/2, 0)
+
+	if bottomSize.Y > 0.2 and bottomSize.X > 0.2 then
+		local bottomWall = Instance.new("Part")
+		bottomWall.Size = bottomSize
+		bottomWall.CFrame = bottomCF
+		bottomWall.Parent = item
+		bottomWall.Color = Color3.fromRGB(168, 168, 168)
+		bottomWall.Anchored = true
+	end
 end
 function PlacingService.Client:PlaceWallNegative(...)
 	return self.Server:PlaceWallNegative(...)
@@ -144,37 +192,37 @@ end
 function PlacingService:Erase(player: Player, wallOrFloor: BasePart)
 	local plot = game.Workspace:WaitForChild('Plots'):WaitForChild(player.UserId)
 	if not wallOrFloor:IsDescendantOf(plot) then return end
-	if wallOrFloor:FindFirstChild('DoorPointer') then
-		wallOrFloor.DoorPointer.Value:Destroy()
+	if wallOrFloor:IsDescendantOf(plot:WaitForChild('Walls')) then
+		local start, finish = (wallOrFloor.CFrame * CFrame.new(-wallOrFloor.Size.X / 2, 0, 0)):ToObjectSpace(plot.Baseplate.CFrame):Inverse(), (wallOrFloor.CFrame * CFrame.new(wallOrFloor.Size.X / 2, 0, 0)):ToObjectSpace(plot.Baseplate.CFrame):Inverse()
+		local pos1, pos2 = -Vector2.new(start.X, start.Z), -Vector2.new(finish.X, finish.Z)
+		
+		local wallGraph = self.WallGraphs[player]
+		if not wallGraph then return end
+		local node1, node2 = wallGraph:RemoveEdge(pos1, pos2)
+		return node1, node2
+	else
+		if wallOrFloor:GetAttribute('NodePos1') and wallOrFloor:GetAttribute('NodePos2') then
+			local pos1, pos2 = wallOrFloor:GetAttribute('NodePos1'), wallOrFloor:GetAttribute('NodePos2')
+			local wallGraph = self.WallGraphs[player]
+			if not wallGraph then return end
+			local node1, node2 = wallGraph:RemoveEdge(pos1, pos2, true)
+			node1.wallNegativeId, node2.wallNegativeId = nil, nil
+			wallGraph:InsertEdge(pos1, pos2)
+
+			--Re-add nodes but without wallnegative tags
+			wallGraph:_recalculateRooms()
+		end
+		wallOrFloor:Destroy()
 	end
-	wallOrFloor:Destroy()
 end
 function PlacingService.Client:Erase(...)
 	return self.Server:Erase(...)
 end
 
-function PlacingService:DrawWall(player: Player, start: Vector3, current: Vector3, level: number)
-	local plot = game.Workspace:WaitForChild('Plots'):WaitForChild(player.UserId)
-
-	-- Determine whether the wall is being drawn along the X or Z axis
-	local isXAxis = math.abs(start.X - current.X) > math.abs(start.Z - current.Z)
-
-	local wallHeight = 10
-	local wallThickness = 0.1
-	
-	local wallSize = Vector3.new((start-current).Magnitude, wallHeight, wallThickness)
-	local wallCFrame = CFrame.new(start:Lerp(current, 0.5)) * CFrame.new(0, wallHeight/2, 0) * CFrame.Angles(0, isXAxis and 0 or math.pi/2, 0)
-
-	local wallsFolder = plot:WaitForChild('Walls'):WaitForChild(level)
-	local wall = Fusion.New "Part" {
-		Parent = wallsFolder,
-		Name = HttpService:GenerateGUID(false),
-		Anchored = true,
-		Material = Enum.Material.SmoothPlastic,
-		Size = wallSize,
-		CFrame = wallCFrame,
-		Color = Color3.fromRGB(168, 168, 168),
-	}
+function PlacingService:DrawWall(player: Player, pos1: Vector2, pos2: Vector2, level: number)
+	local wallGraph = self.WallGraphs[player]
+	if not wallGraph then return end
+	wallGraph:InsertEdge(pos1, pos2)
 end
 function PlacingService.Client:DrawWall(...)
 	return self.Server:DrawWall(...)
@@ -195,23 +243,14 @@ function PlacingService.Client:PlaceItem(...)
 	return self.Server:PlaceItem(...)
 end
 
-function PlacingService:DrawFloor(player: Player, start: Vector3, current: Vector3, level: number)
-	local plot = game.Workspace:WaitForChild('Plots'):WaitForChild(player.UserId)
-
-	local floorSize = Vector3.new(math.abs(start.X - current.X), 1, math.abs(start.Z - current.Z))
-	local floorCFrame = CFrame.new(start:Lerp(current, 0.5))
-
-	local floorsFolder = plot:WaitForChild('Floors'):WaitForChild(level)
-	local floor = Fusion.New "Part" {
-		Parent = floorsFolder,
-		Anchored = true,
-		Material = Enum.Material.Brick,
-		Size = floorSize,
-		CFrame = floorCFrame,
-		Color = Color3.fromRGB(168, 168, 168),
-	}
-
-	return floorSize, floorCFrame
+function PlacingService:DrawFloor(player: Player, pos1: Vector2, pos2: Vector2, level: number)
+	local wallGraph = self.WallGraphs[player]
+	if not wallGraph then return end
+	--Define 4 walls
+	wallGraph:InsertEdge(pos1, Vector2.new(pos1.X, pos2.Y))
+	wallGraph:InsertEdge(Vector2.new(pos1.X, pos2.Y), pos2)
+	wallGraph:InsertEdge(pos2, Vector2.new(pos2.X, pos1.Y))
+	wallGraph:InsertEdge(Vector2.new(pos2.X, pos1.Y), pos1)
 end
 function PlacingService.Client:DrawFloor(...)
 	return self.Server:DrawFloor(...)
