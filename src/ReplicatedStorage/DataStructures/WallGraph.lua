@@ -329,10 +329,8 @@ function WallGraph:_recalculateRooms()
         part.Color = Color3.fromHSV(0, 0, 1)
     end
 
-    self._rooms = {}
     -- Visualise the cycles
     for i, cycle in cycleBasis do
-        table.insert(self._rooms, cycle)
         local color = Color3.fromHSV(i / #cycleBasis, 1, 1)
         for _, node in cycle do
             local part = Instance.new("Part")
@@ -344,8 +342,152 @@ function WallGraph:_recalculateRooms()
             part.CFrame = self._baseplate.CFrame * CFrame.new(node._x, 0-i, node._z):Inverse()
             part.Color = color
         end
+
+        local floorParts = self:_generateFloorPartsForRoom(cycle)
+        if self:_isCompletelyEnclosed(cycle, cycleBasis) then
+           continue
+        end
+
+        for _, floortPart in floorParts do
+            local part = Instance.new("Part")
+            part.Parent = self._baseplate.Parent:WaitForChild('Visuals')
+            part.Anchored = true
+            part.Color = color
+            part.TopSurface = Enum.SurfaceType.SmoothNoOutlines
+
+            local x1, x2 = floortPart.x1, floortPart.x2
+            local z1, z2 = floortPart.y1, floortPart.y2
+            local height = 1
+            local cframe = CFrame.new((x1 + x2) / 2 + 0.5, -height / 2, (z1 + z2) / 2)
+            local size = Vector3.new(math.abs(x2 - x1) + 1, height, math.abs(z2 - z1))
+        
+            part.Size = size
+            part.CFrame = self._baseplate.CFrame * cframe:Inverse()
+        end
     end
 
+end
+
+function WallGraph:_isCompletelyEnclosed(cycle: Cycle, cycleBasis: {Cycle})
+    
+end
+
+function WallGraph:_generateFloorPartsForRoom(room)
+    -- Assuming room is a list of nodes in clockwise or counterclockwise order
+    local horizontalStrips = self:_getHorizontalStrips(room)
+    local floorParts = {}
+
+    for i = 1, #horizontalStrips - 1 do
+        local y1 = horizontalStrips[i]
+        local y2 = horizontalStrips[i + 1]
+
+        local segments = self:_getHorizontalSegments(y1, y2, room)
+        
+        for _, segment in ipairs(segments) do
+            local floorPart = {x1 = segment.start, x2 = segment.stop, y1 = y1, y2 = y2}
+            table.insert(floorParts, floorPart)
+        end
+    end
+
+    return floorParts
+end
+
+function WallGraph:_getHorizontalStrips(room)
+    local yCoords = {}
+    for _, node in ipairs(room) do
+        yCoords[node._z] = true
+    end
+
+    local sortedYCoords = {}
+    for yCoord, _ in pairs(yCoords) do
+        table.insert(sortedYCoords, yCoord)
+    end
+    table.sort(sortedYCoords)
+
+    return sortedYCoords
+end
+
+function WallGraph:_getHorizontalSegments(y1, y2, room)
+    local segments = {}
+    local roomBoundaries = self:_getRoomBoundaries(room)
+
+    local xMin = roomBoundaries.xMin
+    local xMax = roomBoundaries.xMax
+
+    -- Scan from left to right to find segments
+    local segmentStart = nil
+    for x = xMin, xMax do
+        local pointInside = self:_isPointInsideRoom({x, (y1 + y2) / 2}, room)
+        
+        if pointInside and not segmentStart then
+            segmentStart = x
+        elseif not pointInside and segmentStart then
+            table.insert(segments, {start = segmentStart, stop = x - 1})
+            segmentStart = nil
+        end
+    end
+
+    -- Close the last segment if it reaches all the way to xMax
+    if segmentStart then
+        table.insert(segments, {start = segmentStart, stop = xMax})
+    end
+
+    return segments
+end
+
+function WallGraph:_getRoomBoundaries(room)
+    local xMin, xMax, zMin, zMax = math.huge, -math.huge, math.huge, -math.huge
+    for _, node in room do
+        xMin = math.min(xMin, node._x)
+        xMax = math.max(xMax, node._x)
+        zMin = math.min(zMin, node._z)
+        zMax = math.max(zMax, node._z)
+    end
+    return {xMin = xMin, xMax = xMax, zMin = zMin, zMax = zMax}
+end
+
+function WallGraph:_isPointInsideRoom(point, room)
+    local x, y = point[1], point[2]
+    local inside = false
+
+    -- Find horizontal bounds
+    local minX, maxX = math.huge, -math.huge
+    for _, node in room do
+        minX = math.min(minX, node._x)
+        maxX = math.max(maxX, node._x)
+    end
+
+    -- Find vertical bounds
+    local minY, maxY = math.huge, -math.huge
+    for _, node in room do
+        minY = math.min(minY, node._z)
+        maxY = math.max(maxY, node._z)
+    end
+
+    -- Check if the point is inside the bounds
+    if x >= minX and x <= maxX and y >= minY and y <= maxY then
+        -- Further refine check to see if within room edges
+        -- Assuming room nodes are ordered either clockwise or counterclockwise
+        local j = #room
+        for i = 1, #room do
+            local xi, yi = room[i]._x, room[i]._z
+            local xj, yj = room[j]._x, room[j]._z
+            
+            -- Check if point is on room edge
+            if yi == yj and y == yi and x >= math.min(xi, xj) and x <= math.max(xi, xj) then
+                return true
+            end
+            
+            -- Check intersections
+            local intersect = ((yi > y) ~= (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi) + xi)
+            if intersect then
+                inside = not inside
+            end
+            j = i
+        end
+    end
+
+    return inside
 end
 
 return WallGraph
